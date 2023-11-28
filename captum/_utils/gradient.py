@@ -23,6 +23,9 @@ from torch import device, Tensor
 from torch.nn import Module
 
 
+from transformers.modeling_outputs import BaseModelOutputWithPast
+
+
 def apply_gradient_requirements(
     inputs: Tuple[Tensor, ...], warn: bool = True
 ) -> List[bool]:
@@ -254,6 +257,8 @@ def _forward_layer_distributed_eval(
     def hook_wrapper(original_module):
         def forward_hook(module, inp, out=None):
             eval_tsrs = inp if attribute_to_layer_input else out
+            if isinstance(eval_tsrs, BaseModelOutputWithPast):
+                eval_tsrs = eval_tsrs.last_hidden_state
             is_eval_tuple = isinstance(eval_tsrs, tuple)
 
             if not is_eval_tuple:
@@ -265,17 +270,19 @@ def _forward_layer_distributed_eval(
                 # Note that cloning behaviour of `eval_tsr` is different
                 # when `forward_hook_with_return` is set to True. This is because
                 # otherwise `backward()` on the last output layer won't execute.
+                print(type(eval_tsrs))
+                print(len(eval_tsrs))
                 if forward_hook_with_return:
                     saved_layer[original_module][eval_tsrs[0].device] = eval_tsrs
                     eval_tsrs_to_return = tuple(
-                        eval_tsr.clone() for eval_tsr in eval_tsrs
+                        eval_tsr.clone() for eval_tsr in eval_tsrs 
                     )
                     if not is_eval_tuple:
                         eval_tsrs_to_return = eval_tsrs_to_return[0]
                     return eval_tsrs_to_return
                 else:
                     saved_layer[original_module][eval_tsrs[0].device] = tuple(
-                        eval_tsr.clone() for eval_tsr in eval_tsrs
+                        eval_tsr.clone() for eval_tsr in eval_tsrs 
                     )
 
         return forward_hook
