@@ -257,8 +257,12 @@ def _forward_layer_distributed_eval(
     def hook_wrapper(original_module):
         def forward_hook(module, inp, out=None):
             eval_tsrs = inp if attribute_to_layer_input else out
-            if isinstance(eval_tsrs, BaseModelOutputWithPast):
+            is_hf_output = isinstance(eval_tsrs, BaseModelOutputWithPast)
+
+            if is_hf_output:
+                hf_output = eval_tsrs
                 eval_tsrs = eval_tsrs.last_hidden_state
+
             is_eval_tuple = isinstance(eval_tsrs, tuple)
 
             if not is_eval_tuple:
@@ -270,8 +274,6 @@ def _forward_layer_distributed_eval(
                 # Note that cloning behaviour of `eval_tsr` is different
                 # when `forward_hook_with_return` is set to True. This is because
                 # otherwise `backward()` on the last output layer won't execute.
-                print(type(eval_tsrs))
-                print(len(eval_tsrs))
                 if forward_hook_with_return:
                     saved_layer[original_module][eval_tsrs[0].device] = eval_tsrs
                     eval_tsrs_to_return = tuple(
@@ -279,6 +281,9 @@ def _forward_layer_distributed_eval(
                     )
                     if not is_eval_tuple:
                         eval_tsrs_to_return = eval_tsrs_to_return[0]
+                    if is_hf_output:
+                        hf_output.last_hidden_state = eval_tsrs_to_return
+                        return hf_output
                     return eval_tsrs_to_return
                 else:
                     saved_layer[original_module][eval_tsrs[0].device] = tuple(
@@ -606,6 +611,7 @@ def compute_layer_gradients_and_eval(
             forward_hook_with_return=True,
             require_layer_grads=True,
         )
+        output = torch.atleast_1d(output)
         assert output[0].numel() == 1, (
             "Target not provided when necessary, cannot"
             " take gradient with respect to multiple outputs."

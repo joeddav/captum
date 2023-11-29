@@ -659,6 +659,8 @@ class TCAV(ConceptInterpreter):
             "argument to TCAV class. In that case it will be applied "
             "consistently to both layer activation and layer attribution methods."
         )
+        completion_length = (inputs[-1] != -100).float().sum().int().item()
+
         self.compute_cavs(experimental_sets, processes=processes)
 
         scores: Dict[str, Dict[str, Dict[str, Tensor]]] = defaultdict(
@@ -704,7 +706,7 @@ class TCAV(ConceptInterpreter):
             attribs = _format_tensor_into_tuples(attribs)
             # n_inputs x n_features
             attribs = torch.cat(
-                [torch.reshape(attrib, (attrib.shape[0], -1)) for attrib in attribs],
+                [torch.reshape(attrib, (attrib.shape[0], -1, 4096))[:, :-completion_length, :].mean(1) for attrib in attribs],
                 dim=1,
             )
 
@@ -714,7 +716,9 @@ class TCAV(ConceptInterpreter):
             for concepts in experimental_sets:
                 concepts_key = concepts_to_str(concepts)
                 cavs_stats = cast(Dict[str, Any], self.cavs[concepts_key][layer].stats)
-                cavs.append(cavs_stats["weights"].float().detach().tolist())
+                cav_unpooled = cavs_stats["weights"].float().detach()
+                cav = cav_unpooled.reshape((len(concepts), -1, 4096)).mean(1)
+                cavs.append(cav.tolist())
                 classes.append(cavs_stats["classes"])
 
             # sort cavs and classes using the length of the concepts in each set
